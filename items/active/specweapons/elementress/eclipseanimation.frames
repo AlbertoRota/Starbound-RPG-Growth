@@ -1,0 +1,9 @@
+{
+  "frameGrid" : {
+    "size" : [21, 37],
+    "dimensions" : [2, 1],
+    "names" : [
+      [ "moon.idle", "sun.idle" ]
+    ]
+  }
+}

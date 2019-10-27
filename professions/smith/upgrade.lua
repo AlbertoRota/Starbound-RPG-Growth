@@ -46,15 +46,28 @@ function craftingRecipe(items)
       oldElement = newWeapon.parameters.elementalType
       newWeapon.parameters.elementalType = elements[items[3].name]
     end
-    if modifiers[items[4].name].stat ~= "none" then
+
+    if modifiers[items[4].name] then
       local params = modifiers[items[4].name]
       local stat = params.stat
-      if not stat or newWeapon.parameters["ivrpgsmith" .. stat] then return end
-      local num = (itemConfig and itemConfig.config and itemConfig.config.primaryAbility and itemConfig.config.primaryAbility[stat]) or (weapon.parameters.primaryAbility and weapon.parameters.primaryAbility[stat])
-      if not num then return end
-      if not newWeapon.parameters.primaryAbility then newWeapon.parameters.primaryAbility = {} end
-      newWeapon.parameters.primaryAbility[stat] = num * params.mod
-      newWeapon.parameters["ivrpgsmith" .. stat] = true
+      if not stat or type(stat) ~= "table" then return end
+      local foundStat = false
+      for _,v in ipairs(stat) do
+        if v == "none" then 
+          foundStat = true
+          break 
+        end
+        if newWeapon.parameters["ivrpgsmith" .. v] then return end
+        local num = (itemConfig and itemConfig.config and itemConfig.config.primaryAbility and itemConfig.config.primaryAbility[v]) or (weapon.parameters.primaryAbility and weapon.parameters.primaryAbility[v])
+        if num then
+          if not newWeapon.parameters.primaryAbility then newWeapon.parameters.primaryAbility = {} end
+          newWeapon.parameters.primaryAbility[v] = num * params.mod
+          newWeapon.parameters["ivrpgsmith" .. v] = true
+          foundStat = true
+          break
+        end
+      end
+      if not foundStat then return end
     end
     if highestLevel == newLevel and (oldElement and oldElement == elements[items[3].name]) and items[4].name == "coalore" then return end
     input[1].count = 2
@@ -88,6 +101,18 @@ function craftingRecipe(items)
 end
 
 function update(dt)
+  local active = false
+  targetIds = world.playerQuery(entity.position(), 10)
+  if targetIds then
+    for _,id in ipairs(targetIds) do
+      if world.entityCurrency(id, "proftype") == config.getParameter("proftype", 10) then
+        active = true
+      end
+    end
+  end
+
+  object.setInteractive(active)
+
   local powerOn = false
 
   for _,item in pairs(world.containerItems(entity.id())) do

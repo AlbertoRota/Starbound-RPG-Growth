@@ -31,13 +31,6 @@ function setHandlers()
     status.modifyResourcePercentage(type, amount)
   end)
 
-  message.setHandler("ivrpgRally", function(_, _, level, player)
-    self.ivrpgRally[player] = {
-      level = level,
-      timer = 0.5
-    }
-  end)
-
   message.setHandler("ivrpgDevourState", function(_, _, player, position, direction)
     if self.devourState and self.devourState[3] ~= player then
       return
@@ -56,10 +49,9 @@ function setHandlers()
 end
 
 function loadVariables(enemyType, level)
-  self.id = entity.id()
+  self.rpgID = entity.id()
   self.enemyType = enemyType
   self.level = level
-  self.ivrpgRally = {}
   self.baseParameters = mcontroller.baseParameters()
   self.devourState = false
   self.devourTimer = 0
@@ -99,7 +91,7 @@ function updateEffects(dt)
   end
 
   local shouldStealth = status.statPositive("invisible") or status.statPositive("ivrpgstealth")
-  world.setProperty("entity["..tostring(self.id).."]Stealthed", shouldStealth)
+  world.setProperty("entity["..tostring(self.rpgID).."]Stealthed", shouldStealth)
 
   --[[ Movement Parameters!!!
     flySpeed : 8.0
@@ -142,12 +134,10 @@ function updateEffects(dt)
   ]]
 
   local rallyLevel = 0
-  for id,value in pairs(self.ivrpgRally) do
-    rallyLevel = rallyLevel + math.min(50, value.level)
-    value.timer = math.max(0, value.timer - dt)
-    if value.timer == 0 then
-      self.ivrpgRally[id] = nil
-    end
+  local players = world.players()
+  for _,id in ipairs(players) do
+    local rally = world.getProperty("ivrpgRallyMode[" .. id .. "]", 0)
+    rallyLevel = rallyLevel + rally
   end
   
   status.setPersistentEffects("ivrpgRallied", {
@@ -165,7 +155,7 @@ function updateEffects(dt)
       speedModifier = 1 + math.min(rallyLevel/200, 1)
     })
     local targetIds = world.entityQuery(mcontroller.position(), 20, {
-      withoutEntityId = self.id,
+      withoutEntityId = self.rpgID,
       includedTypes = {"creature"}
     })
     for _,id in ipairs(targetIds) do
@@ -254,18 +244,18 @@ function updateDamageTaken(notification)
   -- Class + Affinity Effects
   for k,v in ipairs(onHitList) do
     if v.chance > math.random() then
-      local lengthModifier = v.basedOnDamagePercent and (1.0*damage/world.entityHealth(self.id)[2]) or 1
+      local lengthModifier = v.basedOnDamagePercent and (1.0*damage/world.entityHealth(self.rpgID)[2]) or 1
       lengthModifier = lengthModifier < 0.04 and 0.04 or lengthModifier
       status.addEphemeralEffect(v.effect, v.length * lengthModifier, sourceId)
     end
   end
 
-  if world.entityHealth(self.id)[1] and world.entityHealth(self.id)[1] <= 0 then
+  if world.entityHealth(self.rpgID)[1] and world.entityHealth(self.rpgID)[1] <= 0 then
     enemyDeath(sourceId, damage, sourceKind, onKillList)
   end
 
   -- Bleed
-  world.sendEntityMessage(sourceId, "bleedCheck", damage, sourceKind, self.id)
+  world.sendEntityMessage(sourceId, "bleedCheck", damage, sourceKind, self.rpgID)
 
 end
 
@@ -297,7 +287,7 @@ function enemyDeath(sourceId, damage, sourceKind, onKillList)
     end
 
     -- Don't cause effect when gender is specified and target is either not an NPC or not gendered correctly...
-    if v.gender and not (world.isNpc(self.id) and npc.gender() == v.gender) then
+    if v.gender and not (world.isNpc(self.rpgID) and npc.gender() == v.gender) then
       ignore = true
     end
 
@@ -310,7 +300,7 @@ function enemyDeath(sourceId, damage, sourceKind, onKillList)
         -- Searches nearby entities centering from focalId's position, and not including the target monster.
           local targetIds = world.entityQuery(world.entityPosition(focalId), range, {
             includedTypes = {"creature"},
-            withoutEntityId = self.id
+            withoutEntityId = self.rpgID
           })
           -- Loops through found IDs. If we want to give to friendlies, we make sure we aren't giving to non-friendly PvP players. If we ant to give to enemies, we want to give to non-friendly PvP players.
           for _,id in ipairs(targetIds) do
@@ -353,7 +343,7 @@ function enemyDeath(sourceId, damage, sourceKind, onKillList)
 end
 
 function sendDyingMessage(sourceId, damage, sourceKind)
-  world.sendEntityMessage(sourceId, "killedEnemy", self.enemyType, self.level, mcontroller.position(), status.activeUniqueStatusEffectSummary(), damage, sourceKind)
+  world.sendEntityMessage(sourceId, "killedEnemy", self.enemyType, self.level, mcontroller.position(), mcontroller.facingDirection(), status.activeUniqueStatusEffectSummary(), damage, sourceKind)
 end
 
 function hasEphemeralStat(statusEffects, stat)

@@ -15,7 +15,7 @@ function init()
   self.cryoExplosion = true
   self.lastMonster = {nil, nil, nil, nil, nil}
   self.level = -1
-  self.id = entity.id()
+  self.rpgPlayerID = entity.id()
   self.affinity = 0
   self.class = 0
   self.profession = 0
@@ -27,8 +27,12 @@ function init()
     local noBleed = string.find(sourceKind, "bluntforce") or string.find(sourceKind, "hammer")
     if (bleedChance > math.random() or guaranteed) and not noBleed then
       bleedLength = (guaranteed and bleedLength < 1) and 1 or bleedLength
-      world.sendEntityMessage(sourceId, "applySelfDamageRequest", "IgnoresDef", "bleed", damage/2, self.id)
-      world.sendEntityMessage(sourceId, "addEphemeralEffect", "ivrpgweaken", bleedLength, self.id)
+      world.sendEntityMessage(sourceId, "applySelfDamageRequest", "IgnoresDef", "bleed", damage/2, self.rpgPlayerID)
+      world.sendEntityMessage(sourceId, "addEphemeralEffect", "ivrpgweaken", bleedLength, self.rpgPlayerID)
+      -- Dark Templar Bonus Unlock
+      local dark = status.statusProperty("ivrpgsudarktemplar", 0)
+      if self.level > 34 and type(dark) == "number" then status.setStatusProperty("ivrpgsudarktemplar", dark + math.floor(damage/2)) end
+      -- End Unlock
     end
   end)
 
@@ -39,18 +43,19 @@ function init()
   self.profList = root.assetJson("/professionList.config")
   self.statList = root.assetJson("/stats.config")
   self.weaponScaling = root.assetJson("/weaponScaling.config")
+  self.skillList = root.assetJson("/skillList.config")
 end
 
 function update(dt)
-  self.xp = math.min(world.entityCurrency(self.id, "experienceorb"), 500000)
+  self.xp = math.min(world.entityCurrency(self.rpgPlayerID, "experienceorb"), 500000)
   self.level = self.level == -1 and math.floor(math.sqrt(self.xp/100)) or self.level
   self.classicMode = status.statPositive("ivrpghardcore")
 
   updateStats()
   updateStealth()
 
-  self.heldItem = world.entityHandItem(self.id, "primary")
-  self.heldItem2 = world.entityHandItem(self.id, "alt")
+  self.heldItem = world.entityHandItem(self.rpgPlayerID, "primary")
+  self.heldItem2 = world.entityHandItem(self.rpgPlayerID, "alt")
   if self.heldItem == "sapling" then self.heldItem = nil end
   if self.heldItem2 == "sapling" then self.heldItem2 = nil end
   self.itemConf = self.heldItem and root.itemConfig(self.heldItem).config
@@ -62,7 +67,7 @@ function update(dt)
   self.isBow = self.weapon1 and root.itemHasTag(self.heldItem, "bow") or false
 
   --Weapon Stat Bonuses
-  if self.weaponScaling.items[self.heldItem] then
+  if self.heldItem and self.weaponScaling.items[self.heldItem] then
     local statAmount = 1
     for k,v in pairs(self.weaponScaling.items[self.heldItem]) do
       statAmount = statAmount + self.stats[k]*v
@@ -136,22 +141,23 @@ function update(dt)
   updateDamageGiven()
   updateDamageTaken()
   updateChallenges()
+  updateSkills()
 end
 
 function updateStealth()
   local shouldStealth = status.statPositive("invisible") or status.statPositive("ivrpgstealth")
-  world.setProperty("entity["..tostring(self.id).."]Stealthed", shouldStealth)
+  world.setProperty("entity["..tostring(self.rpgPlayerID).."]Stealthed", shouldStealth)
 end
 
 function updateStats()
   self.stats = {
-    strength = world.entityCurrency(self.id, "strengthpoint"),
-    agility = world.entityCurrency(self.id, "agilitypoint"),
-    vitality = world.entityCurrency(self.id, "vitalitypoint"),
-    vigor = world.entityCurrency(self.id, "vigorpoint"),
-    intelligence = world.entityCurrency(self.id, "intelligencepoint"),
-    endurance = world.entityCurrency(self.id, "endurancepoint"),
-    dexterity = world.entityCurrency(self.id, "dexteritypoint")
+    strength = world.entityCurrency(self.rpgPlayerID, "strengthpoint"),
+    agility = world.entityCurrency(self.rpgPlayerID, "agilitypoint"),
+    vitality = world.entityCurrency(self.rpgPlayerID, "vitalitypoint"),
+    vigor = world.entityCurrency(self.rpgPlayerID, "vigorpoint"),
+    intelligence = world.entityCurrency(self.rpgPlayerID, "intelligencepoint"),
+    endurance = world.entityCurrency(self.rpgPlayerID, "endurancepoint"),
+    dexterity = world.entityCurrency(self.rpgPlayerID, "dexteritypoint")
   }
   self.statBonuses = {
     strength = 1 + status.stat("ivrpgstrengthscaling"),
@@ -220,12 +226,14 @@ function updateStats()
 end
 
 function checkLevelUp()
-  local currXP = world.entityCurrency(self.id,"experienceorb")
+  local currXP = world.entityCurrency(self.rpgPlayerID,"experienceorb")
   if currXP >= (self.level+1)^2*100 and self.level < 50 then
-    self.level = self.level + 1
+    local oldLevel = self.level
+    self.level = math.min(math.floor(math.sqrt(currXP/100)), 50)
     if self.level == 1 then
       return
     end
+    status.setStatusProperty("ivrpgskillpoints", status.statusProperty("ivrpgskillpoints", 0) + (self.level - oldLevel))
     status.addEphemeralEffect("ivrpglevelup")
   elseif currXP < (self.level+1)^2*100 then
     self.level = math.floor(math.sqrt(currXP/100))
@@ -266,7 +274,7 @@ end
 function updateProfessionEffects(dt)
 
   local profession = self.profession
-  self.profession = world.entityCurrency(self.id, "proftype")
+  self.profession = world.entityCurrency(self.rpgPlayerID, "proftype")
   if self.profession == 0 then
     status.clearPersistentEffects("ivrpgprofessioneffects")
     if profession ~= 0 then
@@ -328,8 +336,8 @@ end
 
 function updateClassEffects(dt)
 
-  if self.class ~= world.entityCurrency(self.id, "classtype") then
-    self.class = world.entityCurrency(self.id, "classtype")
+  if self.class ~= world.entityCurrency(self.rpgPlayerID, "classtype") then
+    self.class = world.entityCurrency(self.rpgPlayerID, "classtype")
   end
   
   if self.class == 0 then
@@ -402,8 +410,8 @@ function updateSpecInfo()
 end
 
 function updateSpecialization()
-  if self.spec ~= world.entityCurrency(self.id, "spectype") then
-    self.spec = world.entityCurrency(self.id, "spectype")
+  if self.spec ~= world.entityCurrency(self.rpgPlayerID, "spectype") then
+    self.spec = world.entityCurrency(self.rpgPlayerID, "spectype")
   end
 
   if self.spec == 0 then
@@ -790,8 +798,8 @@ end
 
 function updateAffinityEffects(dt)
 
-  if self.affinity ~= world.entityCurrency(self.id, "affinitytype") then
-    self.affinity = world.entityCurrency(self.id, "affinitytype")
+  if self.affinity ~= world.entityCurrency(self.rpgPlayerID, "affinitytype") then
+    self.affinity = world.entityCurrency(self.rpgPlayerID, "affinitytype")
   end
   
   if self.affinity == 0 then
@@ -848,7 +856,7 @@ function updateAffinityEffects(dt)
     -- Frost & Cryo --
 
     -- Upgrade Chips
-    if status.statPositive("ivrpgucicequeen") and world.entityGender(self.id) == "female" then
+    if status.statPositive("ivrpgucicequeen") and world.entityGender(self.rpgPlayerID) == "female" then
       if (self.weapon1 and root.itemHasTag(self.heldItem, "whip")) or (self.weapon2 and root.itemHasTag(self.heldItem2, "whip")) then
         movementConfig.speedModifier = 1
       end
@@ -864,7 +872,7 @@ function updateAffinityEffects(dt)
     -- Cryo Explosion
     if self.affinity == 7 and status.resource("health")/status.stat("maxHealth") < 0.33 and self.cryoExplosion then
       self.cryoExplosion = false
-      world.spawnProjectile("ivrpgcryoexplosionstatus", mcontroller.position(), self.id, {0,0}, false)
+      world.spawnProjectile("ivrpgcryoexplosionstatus", mcontroller.position(), self.rpgPlayerID, {0,0}, false)
     end
 
   elseif affinityMod == 3 then
@@ -882,7 +890,7 @@ function updateAffinityEffects(dt)
     --Arc Explosion
     if self.affinity == 8 and status.resource("energy") == 0 and self.arcExplosion then
       self.arcExplosion = false
-      world.spawnProjectile("ivrpgarcexplosion", mcontroller.position(), self.id, {0,0}, false)
+      world.spawnProjectile("ivrpgarcexplosion", mcontroller.position(), self.rpgPlayerID, {0,0}, false)
     end
 
   end
@@ -892,7 +900,7 @@ function updateAffinityEffects(dt)
 
   --Aesthetic Trails
   if status.statPositive("ivrpgaesthetics") and (mcontroller.xVelocity() > 1 or mcontroller.xVelocity() < -1) and not status.statPositive("activeMovementAbilities") then
-    world.spawnProjectile(hardcodedAesthetic or self.affinityInfo.aesthetic, {mcontroller.xPosition(), mcontroller.yPosition()-2}, self.id, {0,0}, false, {power = 0, knockback = 0, timeToLive = 0.3, damageKind = "applystatus"})
+    world.spawnProjectile(hardcodedAesthetic or self.affinityInfo.aesthetic, {mcontroller.xPosition(), mcontroller.yPosition()-2}, self.rpgPlayerID, {0,0}, false, {power = 0, knockback = 0, timeToLive = 0.3, damageKind = "applystatus"})
   end
 
   --Reset Arc Explosion and Cryo Explosion variables regardless of Affinity
@@ -910,20 +918,20 @@ function shockNearbyTargets(dt)
   if self.tickTimer <= 0 then
     self.tickTimer = 0.5
     local targetIds = world.entityQuery(mcontroller.position(), 8, {
-      withoutEntityId = self.id,
+      withoutEntityId = self.rpgPlayerID,
       includedTypes = {"creature"}
     })
 
     shuffle(targetIds)
 
     for i,id in ipairs(targetIds) do
-      if world.entityCanDamage(self.id, id) and not world.lineTileCollision(mcontroller.position(), world.entityPosition(id)) then
-        local sourceDamageTeam = world.entityDamageTeam(self.id)
+      if world.entityCanDamage(self.rpgPlayerID, id) and not world.lineTileCollision(mcontroller.position(), world.entityPosition(id)) then
+        local sourceDamageTeam = world.entityDamageTeam(self.rpgPlayerID)
         local directionTo = world.distance(world.entityPosition(id), mcontroller.position())
         world.spawnProjectile(
           "teslaboltsmall",
           mcontroller.position(),
-          self.id,
+          self.rpgPlayerID,
           directionTo,
           false,
           {
@@ -936,6 +944,47 @@ function shockNearbyTargets(dt)
       end
     end
   end
+end
+
+function updateSkills()
+  local activeSkills = status.statusProperty("ivrpgskills", {})
+  local skillEffects = {}
+  local movementConfig = {}
+  for k,v in pairs(activeSkills) do
+    local skill = self.skillList[k]
+    if skill then
+      local allow = true
+      if skill.when then
+        local count = 1
+        for _,w in ipairs(skill.when) do
+          local amount = skill.whenTiers[count][v]
+          if allow and w.type == "status" and not operate(w.operator2, operate(w.operator, status[w.stat1[1]](w.stat1[2]), status[w.stat2[1]](w.stat2[2])), amount) then
+            allow = false
+          elseif allow and w.type == "world" and not operate(w.operator, world[w.func](), amount) then
+            allow = false
+          end
+          count = count + 1
+        end
+      end
+      if (allow or skill.withoutWhen) and skill.persistentEffects then
+        for i=1,#skill.persistentEffects do
+          local effectConfig = {}
+          effectConfig.stat = skill.persistentEffects[i]
+          effectConfig[skill.effectTypes[i]] = skill.effectTiers[i][v]
+          if allow or (skill.withoutWhen and skill.withoutWhen[i]) then
+            table.insert(skillEffects, effectConfig)
+          end
+        end
+      end
+      if allow and skill.movementEffects then
+        for i=1,#skill.movementEffects do
+          movementConfig[skill.movementEffects[i]] = (movementConfig[skill.movementEffects[i]] or 1) + skill.movementTiers[i][v]
+        end
+      end
+    end
+  end
+  status.setPersistentEffects("ivrpgskilleffects", skillEffects)
+  mcontroller.controlModifiers(movementConfig)
 end
 
 function getScaleBonus(scalingList, hands)
@@ -1012,7 +1061,7 @@ function updateChallenges()
       	world.spawnItem("experienceorb", mcontroller.position(), 2000)
       end
       if status.statPositive("ivrpgucskadisblessing") and (self.affinity-1)%4 == 2 and notification.damageSourceKind == "bow" then
-        world.sendEntityMessage(notification.targetEntityId, "applyStatusEffect", "ivrpgembrittle", 3, self.id)
+        world.sendEntityMessage(notification.targetEntityId, "applyStatusEffect", "ivrpgembrittle", 3, self.rpgPlayerID)
       end
       if status.statPositive("ivrpgucbloodseeker") and notification.damageSourceKind == "bloodaether" then
         world.sendEntityMessage(notification.targetEntityId, "hitByBloodAether")

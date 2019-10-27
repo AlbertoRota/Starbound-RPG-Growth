@@ -1,3 +1,19 @@
+function operate(operator, x, y)
+  stringToOperation = {
+    ['+'] = function (x, y) return x + y end,
+    ['-'] = function (x, y) return x - y end,
+    ['*'] = function (x, y) return x * y end,
+    ['/'] = function (x, y) return x / y end,
+    ['<'] = function (x, y) return x < y end,
+    ['>'] = function (x, y) return x > y end,
+    ['<='] = function (x, y) return x <= y end,
+    ['>='] = function (x, y) return x >= y end,
+    ['=='] = function (x, y) return x == y end,
+    ['~='] = function (x, y) return x ~= y end
+  }
+  return stringToOperation[operator](x,y)
+end
+
 function joinMaps(table1, table2)
   if not table1 then
     if not table2 then return nil
@@ -97,6 +113,18 @@ function friendlyQuery(a1, a2, a3, a4, ignoresStealth)
   local newTargets = {}
   for _,id in ipairs(targetIds) do
     if world.entityDamageTeam(id).type == "friendly" or (world.entityDamageTeam(id).type == "pvp" and not world.entityCanDamage(a4, id)) then
+      table.insert(newTargets, id)
+    end
+  end
+  return newTargets
+end
+
+function enemyQuery(a1, a2, a3, a4, ignoresStealth)
+  ignoresStealth = ignoresStealth == nil and true or ignoresStealth
+  local targetIds = world.entityQuery(a1, a2, a3, ignoresStealth)
+  local newTargets = {}
+  for _,id in ipairs(targetIds) do
+    if world.entityDamageTeam(id).type == "enemy" or (world.entityDamageTeam(id).type == "pvp" and world.entityCanDamage(a4, id)) then
       table.insert(newTargets, id)
     end
   end
